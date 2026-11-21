@@ -5,25 +5,121 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Project Messenger</title>
   <style>
+    * { box-sizing: border-box; }
     body {
-      margin: 0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      margin: 0; min-height: 100vh; display: flex;
+      align-items: center; justify-content: center;
       font-family: system-ui, sans-serif;
-      background: #0f172a;
-      color: #f8fafc;
-      text-align: center;
+      background: #0f172a; color: #f8fafc; padding: 16px;
     }
-    h1 { margin: 0 0 8px; }
-    p { margin: 0; color: #94a3b8; }
+    .card {
+      width: 100%; max-width: 380px; background: #1e293b;
+      border-radius: 16px; padding: 24px; text-align: center;
+    }
+    h1 { margin: 0 0 6px; font-size: 24px; }
+    p { margin: 0 0 16px; color: #94a3b8; font-size: 14px; line-height: 1.5; }
+    button {
+      width: 100%; padding: 14px; border: 0; border-radius: 10px;
+      background: #3b82f6; color: #fff; font-size: 16px; font-weight: 600;
+    }
+    button:disabled { opacity: .6; }
+    input {
+      width: 100%; padding: 12px; margin-bottom: 12px; border-radius: 10px;
+      border: 1px solid #334155; background: #0f172a; color: #f8fafc; font-size: 16px;
+    }
+    .id {
+      word-break: break-all; background: #0f172a; border-radius: 10px;
+      padding: 12px; font-family: monospace; font-size: 13px;
+      color: #7dd3fc; margin-bottom: 12px;
+    }
+    .msg { margin-top: 12px; font-size: 13px; color: #fca5a5; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
-  <div>
+  <div class="card">
     <h1>Project Messenger</h1>
-    <p>Setup complete. Coming soon.</p>
+
+    <div id="welcome">
+      <p>Private messaging with no phone number. Create a Session ID to begin.</p>
+      <button id="createBtn">Create my Session ID</button>
+    </div>
+
+    <div id="home" class="hidden">
+      <p>You are signed in. This is your Session ID:</p>
+      <div class="id" id="sessionId"></div>
+      <input id="nameInput" placeholder="Display name" maxlength="40">
+      <button id="saveBtn">Save name</button>
+      <p style="margin-top:16px">Chat features coming next.</p>
+    </div>
+
+    <div class="msg" id="msg"></div>
   </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script>
+    const db = supabase.createClient(
+      window.APP_CONFIG.SUPABASE_URL,
+      window.APP_CONFIG.SUPABASE_PUBLISHABLE_KEY
+    );
+    const $ = (id) => document.getElementById(id);
+    const say = (t) => { $("msg").textContent = t || ""; };
+
+    function showHome(profile) {
+      $("welcome").classList.add("hidden");
+      $("home").classList.remove("hidden");
+      $("sessionId").textContent = profile.session_id;
+      $("nameInput").value = profile.display_name || "";
+    }
+
+    async function loadOrCreateProfile(user) {
+      let { data, error } = await db.from("profiles")
+        .select("*").eq("id", user.id).maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        const res = await db.from("profiles")
+          .insert({ id: user.id }).select().single();
+        if (res.error) throw res.error;
+        data = res.data;
+      }
+      await db.from("profiles")
+        .update({ last_seen: new Date().toISOString() }).eq("id", user.id);
+      return data;
+    }
+
+    $("createBtn").onclick = async () => {
+      say(""); $("createBtn").disabled = true;
+      try {
+        const { data, error } = await db.auth.signInAnonymously();
+        if (error) throw error;
+        showHome(await loadOrCreateProfile(data.user));
+      } catch (e) {
+        say("Error: " + e.message);
+        $("createBtn").disabled = false;
+      }
+    };
+
+    $("saveBtn").onclick = async () => {
+      say("");
+      try {
+        const { data: { user } } = await db.auth.getUser();
+        const { error } = await db.from("profiles")
+          .update({ display_name: $("nameInput").value.trim() })
+          .eq("id", user.id);
+        if (error) throw error;
+        say("");
+        $("saveBtn").textContent = "Saved";
+        setTimeout(() => { $("saveBtn").textContent = "Save name"; }, 1500);
+      } catch (e) { say("Error: " + e.message); }
+    };
+
+    (async () => {
+      try {
+        const { data: { session } } = await db.auth.getSession();
+        if (session) showHome(await loadOrCreateProfile(session.user));
+      } catch (e) { say("Error: " + e.message); }
+    })();
+  </script>
 </body>
 </html>
